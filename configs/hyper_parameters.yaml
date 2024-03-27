@@ -12,7 +12,7 @@ loss_fun: DiceCELoss
 loss: {_target_: $@loss_fun, include_background: false, smooth_nr: 0.01, smooth_dr: 0.01,
   softmax: $not @sigmoid, sigmoid: $@sigmoid, to_onehot_y: $not @sigmoid, batch: true}
 
-ckpt_path: $@bundle_root + '/' + 'model_fold1' # folder to save the model 
+ckpt_path: $@bundle_root + '/' + 'model' # folder to save the model 
 finetune: {enabled: false, ckpt_name: $@ckpt_path  + '/model.pt'}
 infer: {enabled: false, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
     + '/prediction_' + @infer#data_list_key + '_fold1', data_list_key: testing}  
