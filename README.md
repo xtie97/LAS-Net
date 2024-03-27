@@ -14,7 +14,7 @@ A longitudinally-aware segmentation network (LAS-Net) trained on multi-center cl
 
 ## Usage 🚀
 
-We already released our model weights in [**Dropbox**]([https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0]).
+We already released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0).
 
 
 
