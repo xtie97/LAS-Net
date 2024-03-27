@@ -1,0 +1,52 @@
+_meta_: {}
+name: lymph_segmentation
+task: segmentation
+modality: PET_INTERIM
+extra_modalities: {image2: CT, image3: PET_baseline, image4: CT}
+dataroot: /UserData/.../data/...
+datalist: /UserData/.../data/folds/....json
+data_file_base_dir: $@dataroot
+data_list_file_path: $@datalist
+bundle_root: null
+loss_fun: DiceCELoss
+loss: {_target_: $@loss_fun, include_background: false, smooth_nr: 0.01, smooth_dr: 0.01,
+  softmax: $not @sigmoid, sigmoid: $@sigmoid, to_onehot_y: $not @sigmoid, batch: true}
+
+ckpt_path: $@bundle_root + '/' + 'model_fold1' # folder to save the model 
+finetune: {enabled: false, ckpt_name: $@ckpt_path  + '/model.pt'}
+infer: {enabled: false, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
+    + '/prediction_' + @infer#data_list_key + '_fold1', data_list_key: testing}  
+
+class_names: [lesion] 
+roi_size: [112, 112, 112] 
+crop_mode: ratio
+crop_ratios: [1, 2, 2, 4] # [1, 2, 2, 4], [1, 4, 2, 4]
+num_samples: 3    
+batch_size:  1    
+quick: false
+resample: false
+resample_resolution: [3.0, 3.0, 3.0]
+num_epochs_per_validation: 2
+num_epochs_per_saving: 2
+num_workers: 20
+network: {_target_: LASNet}
+sigmoid: false
+num_epochs: 300
+num_warmup_epochs: 5    
+learning_rate: 1.0e-4  
+optimizer: {_target_: torch.optim.AdamW, lr: '@learning_rate', weight_decay: 1.0e-05}
+normalize_mode: range
+amp: true
+ckpt_save: true
+cache_rate: null
+determ: true
+validate: {enabled: false, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
+    + '/prediction_validation'}
+multigpu: true
+input_channels: 4
+output_classes: 4
+image_size: [407, 407, 962]
+class_index: null
+intensity_bounds: [0.32462912266785166, 4.477624973785952]
+spacing_lower: [2.0, 2.0, 2.0]
+spacing_upper: [2.0, 2.0, 2.0]
