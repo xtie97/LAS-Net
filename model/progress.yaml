@@ -1,0 +1,6 @@
+- {best_avg_dice_score_epoch: 9, best_avg_dice_score: 0.0891, save_time: 0.3877, train_time: 153.98s,
+  validation_time: 210.82s, epoch_time: 364.79s, model: /UserData/.../model/model.pt,
+  date: '2023-12-16 06:48:21'}
+- {best_avg_dice_score_epoch: 39, best_avg_dice_score: 0.1939, save_time: 0.3413,
+  train_time: 153.43s, validation_time: 196.56s, epoch_time: 349.99s, model: /UserData/.../model/model.pt,
+  date: '2023-12-16 09:01:09'}
