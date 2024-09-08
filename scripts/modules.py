@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.nn import LayerNorm
 
 from monai.networks.blocks import MLPBlock as Mlp
-from monai.networks.blocks import PatchEmbed, UnetrBasicBlock 
+from monai.networks.blocks import UnetrBasicBlock 
 from monai.networks.layers import DropPath, trunc_normal_
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 from monai.networks.layers.factories import Conv, Norm
