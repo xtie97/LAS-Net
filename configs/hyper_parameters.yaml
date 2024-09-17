@@ -1,10 +1,10 @@
 _meta_: {}
 name: lymph_segmentation
 task: segmentation
-modality: PET_INTERIM
-extra_modalities: {image2: CT, image3: PET_baseline, image4: CT}
-dataroot: /UserData/.../data/...
-datalist: /UserData/.../data/folds/....json
+modality: PET
+extra_modalities: {image2: CT, image3: PET, image4: CT}
+dataroot: data/*
+datalist: data/folds/*.json
 data_file_base_dir: $@dataroot
 data_list_file_path: $@datalist
 bundle_root: null
@@ -21,13 +21,13 @@ class_names: [lesion]
 roi_size: [112, 112, 112] 
 crop_mode: ratio
 crop_ratios: [1, 2, 2, 4] # [1, 2, 2, 4], [1, 4, 2, 4]
-num_samples: 3    
-batch_size:  1    
+num_samples: 2    
+batch_size:  4    
 quick: false
 resample: false
 resample_resolution: [3.0, 3.0, 3.0]
-num_epochs_per_validation: 2
-num_epochs_per_saving: 2
+num_epochs_per_validation: 1
+num_epochs_per_saving: 1
 num_workers: 20
 network: {_target_: LASNet}
 sigmoid: false
