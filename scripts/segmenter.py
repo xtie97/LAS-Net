@@ -1278,10 +1278,7 @@ class Segmenter:
                     
                     target1 = target1.to(pred1.device)
                     target2 = target2.to(pred2.device)
-                    
-                    #TP, FP, FN = acc_function[0](pred1, target1, data[:,0,...]) 
-                    #data[:,0,...] is the interim PET image
-
+                 
                     TP, FP, FN = acc_function[0](pred1, target1) 
                     run_TP.append(torch.tensor(TP, dtype=torch.int64).to(device=device), count=1)
                     run_FP.append(torch.tensor(FP, dtype=torch.int64).to(device=device), count=1)
