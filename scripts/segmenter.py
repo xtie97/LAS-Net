@@ -24,7 +24,6 @@ from copy import deepcopy
 from torch.cuda.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data.distributed import DistributedSampler
-from torch.utils.tensorboard import SummaryWriter
 from monai.apps.auto3dseg.transforms import EnsureSameShaped
 from monai.auto3dseg.utils import datafold_read
 from monai.bundle.config_parser import ConfigParser
@@ -34,7 +33,7 @@ from monai.losses import DeepSupervisionLoss, DiceCELoss, FocalLoss, TverskyLoss
 from monai.metrics import CumulativeAverage, do_metric_reduction, compute_dice
 from monai.metrics.utils import ignore_background
 from monai.networks.utils import one_hot
-from lasnet import LASNet 
+from model import get_network
 from monai.optimizers.lr_scheduler import WarmupCosineSchedule
 from monai.transforms import (
     AsDiscreted,
@@ -63,7 +62,6 @@ from monai.transforms import (
     Spacingd,
     SpatialPadd,
 )
-
 from monai.utils import MetricReduction, convert_to_dst_type, optional_import, set_determinism
 from monai.transforms.transform import MapTransform
 from monai.config import KeysCollection
@@ -101,7 +99,6 @@ class LabelEmbedClassIndex(MapTransform):
             for key in self.key_iterator(d):
                 d[key] = self.label_mapping(d[key])
         return d
-
 
 class DiceHelper:
     def __init__(
@@ -149,7 +146,6 @@ class DiceHelper:
         data = compute_dice(
             y_pred=y_pred, y=y, include_background=self.include_background, ignore_empty=self.ignore_empty
         )
-        #print(data)
         f, not_nans = do_metric_reduction(data, self.reduction)
         return (f, not_nans) if self.get_not_nans else f
 
@@ -161,41 +157,32 @@ def con_comp(seg_array):
     return conn_comp
 
 
-def false_pos_pix(gt_array, pred_array, pred_array_baseline=None):
-    # compute number of voxels of false positive connected components in prediction mask
-    pred_conn_comp = con_comp(pred_array)
-    
-    false_pos = 0 
-    false_pos_num = 0
-    for idx in range(1, min(pred_conn_comp.max()+1, 50)):
-        comp_mask = np.isin(pred_conn_comp, idx)
-        if comp_mask.sum() <= 8: # ignore small connected components 
-            continue
-        if (comp_mask*gt_array).sum() == 0:
-            false_pos = false_pos+comp_mask.sum() 
-            false_pos_num = false_pos_num+1
-            
-    return false_pos_num
-
-
-def false_neg_pix(gt_array, pred_array):
+def get_TN_FP_FN(gt_array, pred_array, PET_volume=None):
     # compute number of voxels of false negative connected components (of the ground truth mask) in the prediction mask
     gt_conn_comp = con_comp(gt_array)
+    pred_conn_comp = con_comp(pred_array)
     
-    false_neg = 0
-    true_pos = 0
     false_neg_num = 0 
     true_pos_num = 0
-    for idx in range(1, min(gt_conn_comp.max()+1, 50)):
+    false_pos_num = 0 
+    
+    for idx in range(1, gt_conn_comp.max()+1):
         comp_mask = np.isin(gt_conn_comp, idx) 
-        if (comp_mask*pred_array).sum() == 0:
-            false_neg = false_neg+comp_mask.sum()
-            false_neg_num = false_neg_num+1
+        if (comp_mask*pred_array).sum() > 0: # overlap with prediction
+            if PET_volume is not None:
+                max_pred_gt = np.max(PET_volume[comp_mask*pred_array > 0])
+                max_gt = np.max(PET_volume[comp_mask > 0]) 
+                if np.abs(max_pred_gt-max_gt) < 0.1: # 0.1 SUV uptake difference 
+                    true_pos_num += 1
+                else:
+                    false_neg_num += 1
+            else:
+                true_pos_num += 1
         else:
-            true_pos = true_pos+comp_mask.sum()
-            true_pos_num = true_pos_num+1
-            
-    return true_pos_num, false_neg_num 
+            false_neg_num += 1
+
+    false_pos_num = pred_conn_comp.max() - true_pos_num      
+    return true_pos_num, false_neg_num, false_pos_num
 
 
 class TPFPFNHelper:
@@ -203,7 +190,7 @@ class TPFPFNHelper:
         super().__init__()
         pass
 
-    def __call__(self, y_pred, y):
+    def __call__(self, y_pred, y, PET_volume=None):
         n_pred_ch = y_pred.shape[1]
         if n_pred_ch > 1:
             y_pred = torch.argmax(y_pred, dim=1, keepdim=True)
@@ -220,22 +207,29 @@ class TPFPFNHelper:
         FN_sum = 0
         y_copy = deepcopy(y).detach().cpu().numpy().squeeze()
         y_pred_copy = deepcopy(y_pred).detach().cpu().numpy().squeeze()
+        if PET_volume is not None:
+            PET_volume_copy = deepcopy(PET_volume).detach().cpu().numpy().squeeze()
+        
         if y_copy.ndim == 3: # if batch dim is reduced 
             y_copy = y_copy[np.newaxis, ...]
             y_pred_copy = y_pred_copy[np.newaxis, ...]
+            if PET_volume is not None:
+                PET_volume_copy = PET_volume_copy[np.newaxis, ...]
 
         for ii in range(y_copy.shape[0]):
             y_ = y_copy[ii]
             y_pred_ = y_pred_copy[ii]   
-
-            FP = false_pos_pix(y_, y_pred_)
-            TP, FN = false_neg_pix(y_, y_pred_)
-
+            if PET_volume is not None:
+                PET_volume_ = PET_volume_copy[ii]
+                TP, FN, FP = get_TN_FP_FN(y_, y_pred_, PET_volume_)
+            else:
+                TP, FN, FP = get_TN_FP_FN(y_, y_pred_) 
+            
             TP_sum += TP
             FP_sum += FP
             FN_sum += FN
 
-        return TP_sum, FP_sum, FN_sum # all are volumes
+        return TP_sum, FP_sum, FN_sum  
 
 
 def logits2pred(logits, sigmoid=False, dim=1):
@@ -252,7 +246,7 @@ class DataTransformBuilder:
         label_key: str = "label",
         resample: bool = False,
         resample_resolution: Optional[list] = None,
-        normalize_mode: str = "meanstd",
+        normalize_mode: str = "PET",
         normalize_params: Optional[dict] = None,
         crop_mode: str = "ratio",
         crop_params: Optional[dict] = None,
@@ -291,7 +285,6 @@ class DataTransformBuilder:
         ts.append(LoadImaged(keys=keys, ensure_channel_first=True, dtype=None, allow_missing_keys=True, image_only=True))
         ts.append(EnsureTyped(keys=keys, data_type="tensor", dtype=torch.float, allow_missing_keys=True))
         ts.append(EnsureSameShaped(keys=self.label_key, source_key=self.image_key, allow_missing_keys=True))
-
         ts.extend(self.get_custom("after_load_transforms"))
 
         return ts
@@ -327,8 +320,6 @@ class DataTransformBuilder:
                     pixdim=pixdim,
                     mode=mode,
                     dtype=torch.float,
-                    #min_pixdim=np.array(pixdim) * 0.75, # do not set the limit for resampling solution 
-                    #max_pixdim=np.array(pixdim) * 1.25,
                     allow_missing_keys=True,
                 )
             )
@@ -347,29 +338,22 @@ class DataTransformBuilder:
         if len(ts) > 0:
             return ts
 
-        modalities = {self.image_key: 'PET_interim'} # default input is PET_interim
+        modalities = {self.image_key: self.normalize_mode} # default input is PET_interim
         modalities.update(self.extra_modalities)
 
         for key, normalize_mode in modalities.items():
             normalize_mode = normalize_mode.lower()
-
-            if normalize_mode in ["pet_baseline"]: # SUV input 
+            if "pet" in normalize_mode: # SUV input 
                 intensity_bounds = [0, 30] # 0-30, 0-10
-                ts.append(ScaleIntensityRanged(keys=key, a_min=intensity_bounds[0], a_max=intensity_bounds[1], b_min=0, b_max=1, clip=True))
-
-            elif normalize_mode in ["pet_interim"]:
-                intensity_bounds = [0, 30] # 0-30, 0-10
-                ts.append(ScaleIntensityRanged(keys=key, a_min=intensity_bounds[0], a_max=intensity_bounds[1], b_min=0, b_max=1, clip=True))
-
-            elif normalize_mode in ["ct"]:
+                ts.append(ScaleIntensityRanged(keys=key, a_min=intensity_bounds[0], a_max=intensity_bounds[1], b_min=0, b_max=1, clip=True))                
+            elif "ct" in normalize_mode:
                 intensity_bounds = [-150, 250] 
                 ts.append(ScaleIntensityRanged(keys=key, a_min=intensity_bounds[0], a_max=intensity_bounds[1], b_min=-1, b_max=1, clip=False))
                 ts.append(Lambdad(keys=key, func=lambda x: torch.sigmoid(x))) # scale to 0-1
             else:
                 raise ValueError("Unsupported normalize_mode" + str(self.normalize_mode))
             
-               
-        if len(modalities) == 4:  
+        if len(modalities) > 0: 
             ts.append(ConcatItemsd(keys=list(modalities), name=self.image_key))  # concatenate all modalities at the channels 
             ts.append(DeleteItemsd(keys=list(self.extra_modalities)))  # release memory
         else:
@@ -405,7 +389,7 @@ class DataTransformBuilder:
                     num_classes=len(crop_ratios), # default = output_classes (0: bg, 1: follow-up only, 2: baseline-only, 3: baseline+follow-up)
                     spatial_size=self.roi_size,
                     num_samples=num_samples, 
-                    ratios=crop_ratios, # [2, 2, 2, 2]
+                    ratios=crop_ratios, # [1, 2, 2, 4]
                     warn = False,
                 )
             )
@@ -445,9 +429,6 @@ class DataTransformBuilder:
                 keys=self.image_key, prob=0.2, sigma_x=[0.5, 1.0], sigma_y=[0.5, 1.0], sigma_z=[0.5, 1.0]
             )
         )
-        # no intensity shift for PET/CT
-        #ts.append(RandScaleIntensityd(keys=self.image_key, prob=0.2, factors=0.3))
-        #ts.append(RandShiftIntensityd(keys=self.image_key, prob=0.2, offsets=0.1))
         ts.append(RandGaussianNoised(keys=self.image_key, prob=0.2, mean=0.0, std=0.1))
 
         ts.append(RandFlipd(keys=[self.image_key, self.label_key], prob=0.5, spatial_axis=0))
@@ -554,17 +535,17 @@ class Segmenter:
             os.makedirs(config["ckpt_path"], exist_ok=True)
 
         if config["determ"]:
-            set_determinism(seed=12)
+            set_determinism(seed=716)
         elif torch.cuda.is_available():
             torch.backends.cudnn.benchmark = True
 
         parser.config["network"]["resolution"] = config["resample_resolution"]
         parser.parse(reset=True)
-        img_size = config["roi_size"] # (112, 112, 112)
-        n_class = 2 #config["output_classes"]
-        in_channels = 2 # PET and CT
-        
-        model = LASNet(img_size=img_size, in_channels=in_channels, out_channels=n_class) 
+        img_size = config["roi_size"] # 96 or 128 
+        in_channels = config["input_channels"]
+        n_class = config["output_classes"]
+        use_checkpoint = config["use_checkpoint"]
+        model = get_network(img_size, in_channels, n_class, use_checkpoint)
 
         if config["pretrained_ckpt_name"] is not None:
             self.checkpoint_load(ckpt=config["pretrained_ckpt_name"], model=model)
@@ -593,7 +574,7 @@ class Segmenter:
         else:
             self.sliding_inferrer = SlidingWindowInferer(
                 roi_size=config["roi_size"],
-                sw_batch_size=1,
+                sw_batch_size=config["sw_batch_size"],
                 overlap=0.625,
                 mode="gaussian",
                 cache_roi_weight_map=True,
@@ -687,10 +668,8 @@ class Segmenter:
         config.setdefault("determ", True)
         config.setdefault("quick", True)
         config.setdefault("cache_rate", None)
-
         config.setdefault("ckpt_path", None)
         config.setdefault("ckpt_save", True)
-
         config.setdefault("crop_mode", "ratio")
         config.setdefault("crop_ratios", None)
         config.setdefault("resample_resolution", [1.0, 1.0, 1.0])
@@ -746,7 +725,7 @@ class Segmenter:
 
         if not os.path.isfile(ckpt):
             if self.rank == 0:
-                warnings.warn("Invalid checkpoint file" + str(ckpt))
+                raise ValueError("=> no checkpoint found at '{}'".format(ckpt))
         else:
             checkpoint = torch.load(ckpt, map_location="cpu")
             model.load_state_dict(checkpoint["state_dict"], strict=False)
@@ -888,7 +867,16 @@ class Segmenter:
         else:
             train_files, validation_files = datafold_read(datalist=config["data_list_file_path"], basedir=config["data_file_base_dir"], fold=config["fold"])
 
+        testing_files, _ = datafold_read(
+                datalist=self.config["datalist"],
+                basedir=self.config["dataroot"],
+                fold=-1,
+                key="testing",
+            )
  
+        train_files = train_files + validation_files
+        validation_files = testing_files
+        
         if config["quick"]:  # quick run on a smaller subset of files
             train_files, validation_files = train_files[:8], validation_files[:8]
         if self.rank == 0:
@@ -926,9 +914,6 @@ class Segmenter:
             # rank 0 is responsible for heavy lifting of logging/saving
             progress_path = os.path.join(ckpt_path, "progress.yaml")
 
-            tb_writer = SummaryWriter(log_dir=ckpt_path)
-            print("Writing Tensorboard logs to ", tb_writer.log_dir)
-
             csv_path = os.path.join(ckpt_path, "accuracy_history.csv")
             self.save_history_csv(
                 csv_path=csv_path,
@@ -958,7 +943,7 @@ class Segmenter:
         best_metric_epoch = -1
         pre_loop_time = time.time()
 
-        for epoch in range(1000): #range(num_epochs):
+        for epoch in range(num_epochs): 
 
             if distributed:
                 if isinstance(train_loader.sampler, DistributedSampler):
@@ -993,16 +978,15 @@ class Segmenter:
                     train_time,
                 )
 
-                if tb_writer is not None:
-                    tb_writer.add_scalar("train/loss", train_loss, epoch)
-                    tb_writer.add_scalar("train/acc", np.mean(train_acc), epoch)
+            if lr_scheduler is not None:
+                lr_scheduler.step()
 
             # validate every num_epochs_per_validation epochs (defaults to 1, every epoch)
             val_acc_mean1 = -1
             val_acc_mean2 = -1
-            if (epoch + 1) % config["num_epochs_per_validation"] == 0 and val_loader is not None and len(val_loader)>0:
-                if (not config["finetune"]["enabled"]) and (epoch + 1) < 10: # train from scratch
-                    continue
+
+            if epoch == 0 or epoch == 10 or epoch == 20 or epoch == 50 or \
+                (epoch >= 100 and epoch % config["num_epochs_per_validation"] == 0): 
                 start_time = time.time()
                 val_loss, avg_TP, avg_FN, avg_FP, val_acc1, val_acc2 = self.val_epoch(
                     model=model,
@@ -1036,11 +1020,6 @@ class Segmenter:
                         validation_time,
                     )
 
-                    if tb_writer is not None:
-                        tb_writer.add_scalar("val/loss", val_loss, epoch)
-                        tb_writer.add_scalar("val/acc_interim", val_acc_mean1, epoch)
-                        tb_writer.add_scalar("val/acc_baseline", val_acc_mean2, epoch)
-                        
                     timing_dict = dict(
                         train_time=train_time,
                         validation_time=validation_time,
@@ -1063,6 +1042,7 @@ class Segmenter:
                                 save_time = save_time,
                                 **timing_dict,
                             )
+
                     if csv_path is not None:
                         self.save_history_csv(
                             csv_path=csv_path,
@@ -1078,21 +1058,12 @@ class Segmenter:
                             **timing_dict,
                         )
 
-            # save intermediate checkpoint every num_epochs_per_saving epochs
-            if do_torch_save and ((epoch + 1) % config["num_epochs_per_saving"] == 0 or epoch == num_epochs-1):
-                self.checkpoint_save(ckpt=intermediate_ckpt_path.replace('final.pt', f'{epoch}.pt'), model=self.model, epoch=epoch)
-              
-            if lr_scheduler is not None:
-                lr_scheduler.step()
+                if do_torch_save:
+                    self.checkpoint_save(ckpt=intermediate_ckpt_path.replace('final.pt', f'{epoch}.pt'), model=self.model, epoch=epoch)
 
         #### end of main epoch loop
-
         train_loader = None
         val_loader = None
-
-        if tb_writer is not None:
-            tb_writer.flush()
-            tb_writer.close()
 
 
     def infer(self, testing_files=None):
@@ -1326,6 +1297,9 @@ class Segmenter:
                     target1 = target1.to(pred1.device)
                     target2 = target2.to(pred2.device)
                     
+                    #TP, FP, FN = acc_function[0](pred1, target1, data[:,0,...]) 
+                    #data[:,0,...] is the interim PET image
+
                     TP, FP, FN = acc_function[0](pred1, target1) 
                     run_TP.append(torch.tensor(TP, dtype=torch.int64).to(device=device), count=1)
                     run_FP.append(torch.tensor(FP, dtype=torch.int64).to(device=device), count=1)
@@ -1380,6 +1354,7 @@ class Segmenter:
         config = self.config
         cache_rate = config.get("cache_rate", None)
         total_cases = train_cases + validation_cases
+        avail_memory = 0.01 #psutil.virtual_memory().available
 
         if cache_rate is None:
             cache_rate = 0.0
@@ -1387,7 +1362,6 @@ class Segmenter:
 
             if image_size is not None:
                 approx_cache_required = (4 * 2 * np.prod(image_size) * config["input_channels"]) * total_cases
-                avail_memory = psutil.virtual_memory().available
                 cache_rate = min(0.5 * avail_memory / float(approx_cache_required), 1.0)
                 if cache_rate < 0.1:
                     cache_rate = 0.0  # don't cache small amounts
@@ -1402,7 +1376,6 @@ class Segmenter:
                         )
                     else:
                         print("Caching full dataset in RAM")
-
         else:
             if self.rank == 0:
                 print(f"Using user specified cache_rate {cache_rate} to cache data in RAM")

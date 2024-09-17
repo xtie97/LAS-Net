@@ -30,6 +30,7 @@ class LASNet(nn.Module):
         in_channels: int,
         out_channels: int,
         feature_size: int = 32,
+        num_heads: Sequence[int] = [2, 4, 8, 16],
         norm_name: tuple | str = "instance",
         drop_rate: float = 0.0,
         attn_drop_rate: float = 0.0,
@@ -37,16 +38,16 @@ class LASNet(nn.Module):
         normalize: bool = True,
         spatial_dims: int = 3,
         downsample="merging",
+        deep_supr_num: int = 1,
+        use_checkpoint: bool = False,
     ) -> None:
         
         super().__init__()
 
         img_size = ensure_tuple_rep(img_size, spatial_dims)
-        if img_size[0] % 7 == 0: #112
-            window_size = ensure_tuple_rep(7, spatial_dims) # 7*7*7
-        elif img_size[0] % 8 == 0: #128
-            window_size = ensure_tuple_rep(8, spatial_dims) # 8*8*8
-
+        window_size = ensure_tuple_rep(7, spatial_dims) # 7*7*7
+        patch_size = ensure_tuple_rep(2, spatial_dims)
+        
         if not (spatial_dims == 3):
             raise ValueError("spatial dimension should be 3.")
 
@@ -60,21 +61,35 @@ class LASNet(nn.Module):
             raise ValueError("drop path rate should be between 0 and 1.")
 
         self.normalize = normalize
+        self.in_chans = in_channels
+        self.deep_supr_num = deep_supr_num
 
         self.swinViT = SwinTransformer(
             in_chans=in_channels,
-            window_size = window_size,
-            conv_features = feature_size, 
             embed_dim = feature_size, 
+            window_size = window_size,
+            patch_size = patch_size,
+            num_heads = num_heads,
             drop_rate=drop_rate,
             attn_drop_rate=attn_drop_rate,
             drop_path_rate=dropout_path_rate,
             norm_layer=nn.LayerNorm,
             spatial_dims=spatial_dims,
             downsample=downsample,
+            use_checkpoint=use_checkpoint,
         )
 
-        self.encoder2 = UnetrBasicBlock(
+        self.encoder0 = UnetrBasicBlock(
+            spatial_dims=spatial_dims,
+            in_channels=in_channels,
+            out_channels=feature_size,
+            kernel_size=3,
+            stride=1,
+            norm_name=norm_name,
+            res_block=True,
+        )
+
+        self.encoder1 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
             in_channels=feature_size,
             out_channels=feature_size,
@@ -84,7 +99,7 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.encoder3 = UnetrBasicBlock(
+        self.encoder2 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
             in_channels=2*feature_size,
             out_channels=2*feature_size,
@@ -94,7 +109,7 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.encoder4 = UnetrBasicBlock(
+        self.encoder3 = UnetrBasicBlock(
             spatial_dims=spatial_dims,
             in_channels=4*feature_size,
             out_channels=4*feature_size,
@@ -114,7 +129,7 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.decoder4 = UnetrUpBlock(
+        self.decoder3 = UnetrUpBlock(
             spatial_dims=spatial_dims,
             in_channels=8*feature_size,
             out_channels=4*feature_size,
@@ -124,7 +139,7 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.decoder3 = UnetrUpBlock(
+        self.decoder2 = UnetrUpBlock(
             spatial_dims=spatial_dims,
             in_channels=4*feature_size,
             out_channels=2*feature_size,
@@ -134,7 +149,7 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.decoder2 = UnetrUpBlock(
+        self.decoder1 = UnetrUpBlock(
             spatial_dims=spatial_dims,
             in_channels=2*feature_size,
             out_channels=feature_size,
@@ -144,7 +159,7 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.decoder1 = UnetrUpBlock(
+        self.decoder0 = UnetrUpBlock(
             spatial_dims=spatial_dims,
             in_channels=feature_size,
             out_channels=feature_size,
@@ -154,26 +169,50 @@ class LASNet(nn.Module):
             res_block=True,
         )
 
-        self.out = UnetOutBlock(spatial_dims=spatial_dims, in_channels=feature_size, out_channels=out_channels) 
-
+        feature_size_list = [feature_size, feature_size, 2*feature_size, 4*feature_size, 8*feature_size]
+        self.out = nn.ModuleList(
+            [UnetOutBlock(spatial_dims=spatial_dims, in_channels=feature_size_list[i], out_channels=out_channels) for i in range(deep_supr_num)]
+        )
+        
     def forward(self, x_in):
         hidden_states_out = self.swinViT(x_in, self.normalize)
 
-        enc0, enc0_ref = hidden_states_out[0], hidden_states_out[5]
-
-        enc1, enc1_ref = self.encoder2(hidden_states_out[1]), self.encoder2(hidden_states_out[6])
-        enc2, enc2_ref = self.encoder3(hidden_states_out[2]), self.encoder3(hidden_states_out[7])
-        enc3, enc3_ref = self.encoder4(hidden_states_out[3]), self.encoder4(hidden_states_out[8])
-        enc4, enc4_ref = self.bottleneck(hidden_states_out[4]), self.bottleneck(hidden_states_out[9])
+        # decode the hidden states
+        x = x_in[:, :self.in_chans, ...] # interim PET/CT images
+        x_ref = x_in[:, self.in_chans:, ...] # baseline PET/CT images
+        enc0, enc0_ref = self.encoder0(x), self.encoder0(x_ref)
+        enc1, enc1_ref = self.encoder1(hidden_states_out[0]), self.encoder1(hidden_states_out[4]) 
+        enc2, enc2_ref = self.encoder2(hidden_states_out[1]), self.encoder2(hidden_states_out[5])
+        enc3, enc3_ref = self.encoder3(hidden_states_out[2]), self.encoder3(hidden_states_out[6])
+        dec4, dec4_ref  = self.bottleneck(hidden_states_out[3]), self.bottleneck(hidden_states_out[7])
         
-        
-        dec3, dec3_ref = self.decoder4(enc4, enc3, enc4_ref, enc3_ref)
-        dec2, dec2_ref = self.decoder3(dec3, enc2, dec3_ref, enc2_ref)
-        dec1, dec1_ref = self.decoder2(dec2, enc1, dec2_ref, enc1_ref)
-        dec0, dec0_ref = self.decoder1(dec1, enc0, dec1_ref, enc0_ref)
-        
-        out = self.out(dec0)
-        out_ref = self.out(dec0_ref)
+        decs: list[torch.Tensor] = []
+        dec_refs: list[torch.Tensor] = []
 
-        return out, out_ref
+        dec3, dec3_ref = self.decoder3(dec4, enc3, dec4_ref, enc3_ref)
+        decs.append(dec3)
+        dec_refs.append(dec3_ref)
+        dec2, dec2_ref = self.decoder2(dec3, enc2, dec3_ref, enc2_ref)
+        decs.append(dec2)
+        dec_refs.append(dec2_ref)
+        dec1, dec1_ref = self.decoder1(dec2, enc1, dec2_ref, enc1_ref)
+        decs.append(dec1)
+        dec_refs.append(dec1_ref)
+        dec0, dec0_ref = self.decoder0(dec1, enc0, dec1_ref, enc0_ref)
+        decs.append(dec0)
+        dec_refs.append(dec0_ref)
 
+        decs.reverse() # the first element is the output of the last layer
+        dec_refs.reverse() 
+        
+        outs: list[torch.Tensor] = []
+        out_refs: list[torch.Tensor] = []
+
+        for i in range(self.deep_supr_num):
+            outs.append(self.out[i](decs[i])) # the first element is the output of the last layer
+            out_refs.append(self.out[i](dec_refs[i]))
+
+        if not self.training or len(outs) == 1:
+            return outs[0], out_refs[0]
+        
+        return outs, out_refs

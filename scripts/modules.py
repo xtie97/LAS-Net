@@ -8,9 +8,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import LayerNorm
+import torch.utils.checkpoint as checkpoint
 
 from monai.networks.blocks import MLPBlock as Mlp
-from monai.networks.blocks import UnetrBasicBlock 
+from monai.networks.blocks import UnetrBasicBlock, PatchEmbed
 from monai.networks.layers import DropPath, trunc_normal_
 from monai.utils import ensure_tuple_rep, look_up_option, optional_import
 from monai.networks.layers.factories import Conv, Norm
@@ -93,7 +94,6 @@ class UnetrUpBlock(nn.Module):
             Norm[norm_name, spatial_dims](1),
         )
 
-
     def forward(self, inp, skip, inp_ref, skip_ref):
         # number of channels for skip should equals to out_channels
         out = self.transp_conv(inp)
@@ -108,12 +108,9 @@ class UnetrUpBlock(nn.Module):
         skip_ref = skip_ref * torch.sigmoid(skip_mask_ref)
 
         out = torch.cat((out, skip), dim=1)
-        out = self.conv_block(out)
-
         out_ref = torch.cat((out_ref, skip_ref), dim=1)
-        out_ref = self.conv_block(out_ref)
 
-        return out, out_ref
+        return self.conv_block(out), self.conv_block(out_ref)
 
 
 def window_partition(x, window_size):
@@ -263,7 +260,7 @@ class WindowAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, x_ref=None, mask=None):
+    def forward(self, x, mask, x_ref=None):
         b, n, c = x.shape
         if x_ref is None:
             q, k, v = self.qkv(x).reshape(b, n, 3, self.num_heads, c // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -305,6 +302,7 @@ class SwinTransformerBlock(nn.Module):
         drop_path: float = 0.0,
         act_layer: str = "GELU",
         norm_layer: type[LayerNorm] = nn.LayerNorm,
+        use_checkpoint: bool = False,
         is_cross: bool = False,
     ) -> None:
 
@@ -314,6 +312,7 @@ class SwinTransformerBlock(nn.Module):
         self.window_size = window_size
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
+        self.use_checkpoint = use_checkpoint
         self.is_cross = is_cross
         self.norm1 = norm_layer(dim)
         if self.is_cross:
@@ -332,7 +331,7 @@ class SwinTransformerBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(hidden_size=dim, mlp_dim=mlp_hidden_dim, act=act_layer, dropout_rate=drop, dropout_mode="swin")
 
-    def forward_part1(self, x, x_ref=None, mask_matrix=None): 
+    def forward_part1(self, x, mask_matrix, x_ref=None): 
         x_shape = x.size()
         x = self.norm1(x) # dim=-1
         if self.is_cross and x_ref is None:
@@ -374,16 +373,16 @@ class SwinTransformerBlock(nn.Module):
         
         # after padding: 
         x_windows = window_partition(shifted_x, window_size)
-        if x_ref is not None:
+        if x_ref is not None: # for cross attention
             x_ref_windows = window_partition(shifted_x_ref, window_size)
-            attn_windows = self.attn(x_windows, x_ref_windows, mask=attn_mask)
-        else:
-            attn_windows = self.attn(x_windows, mask=attn_mask)
-        #print(attn_windows.shape) # [1000, 7*7*7, 24]
+            attn_windows = self.attn(x_windows, attn_mask, x_ref_windows)
+        else: # for self attention
+            attn_windows = self.attn(x_windows, attn_mask)
+        #print(attn_windows.shape) # [1000, 7*7*7, embed_dim]
         attn_windows = attn_windows.view(-1, *(window_size + (c,)))
-        #print(attn_windows.shape) # [1000, 7, 7, 7, 24]
+        #print(attn_windows.shape) # [1000, 7, 7, 7, embed_dim]
         shifted_x = window_reverse(attn_windows, window_size, dims)
-        #print(shifted_x.shape)    # [1, 70, 70, 70, 24]
+        #print(shifted_x.shape)    # [1, 70, 70, 70, embed_dim]
 
         if any(i > 0 for i in shift_size):
             if len(x_shape) == 5:
@@ -401,17 +400,22 @@ class SwinTransformerBlock(nn.Module):
     
         return x
     
-
     def forward_part2(self, x):
         return self.drop_path(self.mlp(self.norm3(x)))
 
-    def forward(self, x, x_ref=None, mask_matrix=None):
+    def forward(self, x, mask_matrix, x_ref=None):
         shortcut = x
         if x_ref is not None:
-            x = self.forward_part1(x, x_ref, mask_matrix=mask_matrix)
+            if self.use_checkpoint:
+                x = checkpoint.checkpoint(self.forward_part1, x, mask_matrix, x_ref)
+            else:
+                x = self.forward_part1(x, mask_matrix, x_ref)
         else:
-            x = self.forward_part1(x, mask_matrix=mask_matrix)
-
+            if self.use_checkpoint:
+                x = checkpoint.checkpoint(self.forward_part1, x, mask_matrix)
+            else:
+                x = self.forward_part1(x, mask_matrix)
+            
         x = shortcut + self.drop_path(x)
         x = x + self.forward_part2(x)
             
@@ -505,7 +509,6 @@ def compute_mask(dims, window_size, shift_size, device):
         shift_size: shift size.
         device: device.
     """
-
     cnt = 0
 
     if len(dims) == 3:
@@ -534,10 +537,10 @@ def compute_mask(dims, window_size, shift_size, device):
 
 
 class EncoderLayer(nn.Module):
-
     def __init__(
         self,
         dim: int,
+        depth: int,
         num_heads: int,
         window_size: Sequence[int],
         drop_path: float = 0.0,
@@ -546,7 +549,7 @@ class EncoderLayer(nn.Module):
         drop: float = 0.0,
         attn_drop: float = 0.0,
         norm_layer: type[LayerNorm] = nn.LayerNorm,
-        is_shift: bool = True, 
+        use_checkpoint: bool = False,
     ) -> None:
         """
         Args:
@@ -559,53 +562,32 @@ class EncoderLayer(nn.Module):
             drop: dropout rate.
             attn_drop: attention dropout rate.
             norm_layer: normalization layer.
-            downsample: an optional downsampling layer at the end of the layer.
         """
         super().__init__()
         self.window_size = window_size
         self.shift_size = tuple(i // 2 for i in window_size)
         self.no_shift = tuple(0 for _ in window_size)
 
-        # non-shift self-window-attention
-        self.block1 = SwinTransformerBlock(dim=dim,
-                                           num_heads=num_heads,
-                                           window_size=self.window_size,
-                                           shift_size=self.no_shift,
-                                           mlp_ratio=mlp_ratio,
-                                           qkv_bias=qkv_bias,
-                                           drop=drop,
-                                           attn_drop=attn_drop,
-                                           drop_path=drop_path,
-                                           norm_layer=norm_layer)
-
-        self.is_shift = is_shift
-        # shifted self-window-attention
-        if self.is_shift:                              
-            self.block2 = SwinTransformerBlock(dim=dim,
-                                            num_heads=num_heads,
-                                            window_size=self.window_size,
-                                            shift_size=self.shift_size,
-                                            mlp_ratio=mlp_ratio,
-                                            qkv_bias=qkv_bias,
-                                            drop=drop,
-                                            attn_drop=attn_drop,
-                                            drop_path=drop_path,
-                                            norm_layer=norm_layer)
-        # additional non-shift self-window-attention
-        else:
-            self.block2 = SwinTransformerBlock(dim=dim,
-                                            num_heads=num_heads,
-                                            window_size=self.window_size,
-                                            shift_size=self.no_shift,
-                                            mlp_ratio=mlp_ratio,
-                                            qkv_bias=qkv_bias,
-                                            drop=drop,
-                                            attn_drop=attn_drop,
-                                            drop_path=drop_path,
-                                            norm_layer=norm_layer)
-
+        self.self_attn_blocks = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=dim,
+                    num_heads=num_heads,
+                    window_size=self.window_size,
+                    shift_size=self.no_shift if (i % 2 == 0) else self.shift_size,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    drop=drop,
+                    attn_drop=attn_drop,
+                    drop_path=drop_path,
+                    norm_layer=norm_layer,
+                    use_checkpoint=use_checkpoint,
+                )
+                for i in range(depth)
+            ]
+        )
         # window cross-attention
-        self.block_cross =  SwinTransformerBlock(dim=dim,
+        self.cross_attn_block =  SwinTransformerBlock(dim=dim,
                                                 num_heads=num_heads,
                                                 window_size=self.window_size,
                                                 shift_size=self.no_shift,
@@ -615,9 +597,9 @@ class EncoderLayer(nn.Module):
                                                 attn_drop=attn_drop,
                                                 drop_path=drop_path,
                                                 norm_layer=norm_layer,
+                                                use_checkpoint=use_checkpoint,
                                                 is_cross=True)
-            
-
+    
     def forward(self, x, x_ref):
         x_shape = x.size()
             
@@ -632,61 +614,20 @@ class EncoderLayer(nn.Module):
         attn_mask = compute_mask([dp, hp, wp], window_size, shift_size, x.device)
         
         # self-window-attention
-        x = self.block1(x, mask_matrix=attn_mask)
-        x_ref = self.block1(x_ref, mask_matrix=attn_mask)
-
-        x = self.block2(x, mask_matrix=attn_mask)
-        x_ref = self.block2(x_ref, mask_matrix=attn_mask)
+        for blk in self.self_attn_blocks: 
+            x = blk(x, attn_mask)
+            x_ref = blk(x_ref, attn_mask)
         
         # window cross-attention
-        x = self.block_cross(x, x_ref, mask_matrix=attn_mask)
+        x = self.cross_attn_block(x, attn_mask, x_ref)
 
         x = x.view(b, d, h, w, -1)
         x_ref = x_ref.view(b, d, h, w, -1)
-        
+
         x = rearrange(x, "b d h w c -> b c d h w")
         x_ref = rearrange(x_ref, "b d h w c -> b c d h w")
 
         return x, x_ref
-
-
-class PatchEmbed(nn.Module):
-    def __init__(
-        self,
-        in_chans,
-        embed_dim,
-        patch_size: int = 2,
-        norm_layer: Type[LayerNorm] = nn.LayerNorm,
-        spatial_dims: int = 3,
-    ) -> None:
-        super().__init__()
-
-        if spatial_dims not in (2, 3):
-            raise ValueError("spatial dimension should be 2 or 3.")
-
-        patch_size = ensure_tuple_rep(patch_size, spatial_dims)
-        self.patch_size = patch_size
-        self.embed_dim = embed_dim
-        self.proj = Conv[Conv.CONV, spatial_dims](
-            in_channels=in_chans, out_channels=embed_dim, kernel_size=3, stride=patch_size, padding=1)
-        if norm_layer is not None:
-            self.norm = norm_layer(embed_dim)
-        else:
-            self.norm = None
-
-    def forward(self, x):
-        x_shape = x.size()
-   
-        x = self.proj(x)
-        if self.norm is not None:
-            x_shape = x.size()
-            x = x.flatten(2).transpose(1, 2)
-            x = self.norm(x)
-            if len(x_shape) == 5:
-                d, wh, ww = x_shape[2], x_shape[3], x_shape[4]
-                x = x.transpose(1, 2).view(-1, self.embed_dim, d, wh, ww)
-            
-        return x
 
 
 class SwinTransformer(nn.Module):
@@ -700,9 +641,9 @@ class SwinTransformer(nn.Module):
     def __init__(
         self,
         in_chans: int,
-        window_size: Sequence[int] = (7, 7, 7),
-        conv_features: int = 32, 
         embed_dim: int = 32, 
+        window_size: Sequence[int] = (7, 7, 7),
+        patch_size: Sequence[int] = (2, 2, 2),
         num_heads: Sequence[int] = [2, 4, 8, 16],
         mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
@@ -710,48 +651,61 @@ class SwinTransformer(nn.Module):
         attn_drop_rate: float = 0.0,
         drop_path_rate: float = 0.0,
         norm_layer: type[LayerNorm] = nn.LayerNorm,
+        patch_norm: bool = False,
+        use_checkpoint: bool = False,
         spatial_dims: int = 3,
         downsample="merging",
     ) -> None:
         super().__init__()
 
-        # top conv layer 
-        self.encoder_lv1 = UnetrBasicBlock(spatial_dims=spatial_dims, 
-                                           in_channels=in_chans, 
-                                           out_channels=conv_features, 
-                                           kernel_size=3, 
-                                           stride=1, 
-                                           norm_name='instance', 
-                                           res_block=True) 
-       
-        self.patch_embed = PatchEmbed(in_chans=conv_features, embed_dim=embed_dim) # 32*32*32
+        self.in_chans = in_chans
+        self.depth = 2 # depth of each encoder layer (self-attention) 
+        self.patch_embed = PatchEmbed(patch_size=patch_size,
+                                      in_chans=self.in_chans,
+                                      embed_dim=embed_dim,
+                                      norm_layer=norm_layer if patch_norm else None,  # type: ignore
+                                      spatial_dims=spatial_dims,
+                                      )
         self.pos_drop = nn.Dropout(p=drop_rate)
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, len(num_heads))]
         down_sample_mod = look_up_option(downsample, MERGING_MODE) if isinstance(downsample, str) else downsample
 
-        self.encoder_lv2 = EncoderLayer(dim=int(embed_dim*1),
-                                            num_heads=num_heads[0],
-                                            window_size=window_size,
-                                            drop_path=dpr[0],
-                                            mlp_ratio=mlp_ratio,
-                                            qkv_bias=qkv_bias,
-                                            drop=drop_rate,
-                                            attn_drop=attn_drop_rate,
-                                            norm_layer=norm_layer)
-        self.encoder_lv2_down = down_sample_mod(dim=int(embed_dim*1), norm_layer=norm_layer, spatial_dims=len(window_size))
-            
-        self.encoder_lv3 = EncoderLayer(dim=int(embed_dim*2),
-                                            num_heads=num_heads[1],
-                                            window_size=window_size,
-                                            drop_path=dpr[1],
-                                            mlp_ratio=mlp_ratio,
-                                            qkv_bias=qkv_bias,
-                                            drop=drop_rate,
-                                            attn_drop=attn_drop_rate,
-                                            norm_layer=norm_layer)
-        self.encoder_lv3_down = down_sample_mod(dim=int(embed_dim*2), norm_layer=norm_layer, spatial_dims=len(window_size))
-
-        self.encoder_lv4 = EncoderLayer(dim=int(embed_dim*4),
+        self.encoder_layer1 = EncoderLayer(dim=int(embed_dim*1),
+                                        depth=self.depth,
+                                        num_heads=num_heads[0],
+                                        window_size=window_size,
+                                        drop_path=dpr[0],
+                                        mlp_ratio=mlp_ratio,
+                                        qkv_bias=qkv_bias,
+                                        drop=drop_rate,
+                                        attn_drop=attn_drop_rate,
+                                        norm_layer=norm_layer,
+                                        use_checkpoint=use_checkpoint
+                                        )
+        self.encoder_layer1_down = down_sample_mod(dim=int(embed_dim*1), 
+                                                   norm_layer=norm_layer, 
+                                                   spatial_dims=len(window_size)
+                                                   )
+           
+        self.encoder_layer2 = EncoderLayer(dim=int(embed_dim*2),
+                                           depth=self.depth,
+                                           num_heads=num_heads[1],
+                                           window_size=window_size,
+                                           drop_path=dpr[1],
+                                           mlp_ratio=mlp_ratio,
+                                           qkv_bias=qkv_bias,
+                                           drop=drop_rate,
+                                           attn_drop=attn_drop_rate,
+                                           norm_layer=norm_layer,
+                                           use_checkpoint=use_checkpoint
+                                           )
+        self.encoder_layer2_down = down_sample_mod(dim=int(embed_dim*2), 
+                                                   norm_layer=norm_layer, 
+                                                   spatial_dims=len(window_size)
+                                                   )
+    
+        self.encoder_layer3 = EncoderLayer(dim=int(embed_dim*4),
+                                            depth=self.depth,
                                             num_heads=num_heads[2],
                                             window_size=window_size,
                                             drop_path=dpr[2],
@@ -759,10 +713,16 @@ class SwinTransformer(nn.Module):
                                             qkv_bias=qkv_bias,
                                             drop=drop_rate,
                                             attn_drop=attn_drop_rate,
-                                            norm_layer=norm_layer)
-        self.encoder_lv4_down = down_sample_mod(dim=int(embed_dim*4), norm_layer=norm_layer, spatial_dims=len(window_size))
+                                            norm_layer=norm_layer,
+                                            use_checkpoint=use_checkpoint
+                                           )
+        self.encoder_layer3_down = down_sample_mod(dim=int(embed_dim*4), 
+                                                   norm_layer=norm_layer, 
+                                                   spatial_dims=len(window_size)
+                                                   )
 
-        self.encoder_lv5 = EncoderLayer(dim=int(embed_dim*8),
+        self.encoder_layer4 = EncoderLayer(dim=int(embed_dim*8),
+                                            depth=self.depth,
                                             num_heads=num_heads[3],
                                             window_size=window_size,
                                             drop_path=dpr[3],
@@ -771,9 +731,9 @@ class SwinTransformer(nn.Module):
                                             drop=drop_rate,
                                             attn_drop=attn_drop_rate,
                                             norm_layer=norm_layer,
-                                            is_shift=False)
-            
-
+                                            use_checkpoint=use_checkpoint
+                                           )
+             
     def proj_out(self, x, normalize=False):
         if normalize:
             x_shape = x.size()
@@ -787,38 +747,37 @@ class SwinTransformer(nn.Module):
         return x
 
     def forward(self, x_in, normalize=True):
-        x = x_in[:, :2, ...]
-        x_ref = x_in[:, 2:, ...]
-        
-        x0 = self.encoder_lv1(x) # CNN output 128*128*128*32 
-        x0_ref = self.encoder_lv1(x_ref) # CNN output 128*128*128*32
+        x = x_in[:, :self.in_chans, ...] # interim PET/CT images
+        x_ref = x_in[:, self.in_chans:, ...] # baseline PET/CT images
 
-        x1 = self.patch_embed(x0) # 64*64*64*32
-        x1_ref = self.patch_embed(x0_ref) # 64*64*64*32
-        x1 = self.pos_drop(x1) 
-        x1_ref = self.pos_drop(x1_ref)
-        
-        x1, x1_ref = self.encoder_lv2(x1.contiguous(), x1_ref.contiguous()) # 64*64*64*32
+        x0 = self.patch_embed(x) 
+        x0 = self.pos_drop(x0) 
+        x0_ref = self.patch_embed(x_ref) 
+        x0_ref = self.pos_drop(x0_ref) 
+
+        x1, x1_ref = self.encoder_layer1(x0.contiguous(), x0_ref.contiguous())  
         x1_out = self.proj_out(x1, normalize)
         x1_ref_out = self.proj_out(x1_ref, normalize)
         
-        x1 = self.encoder_lv2_down(x1.contiguous()) # 32*32*32*64
-        x1_ref = self.encoder_lv2_down(x1_ref.contiguous()) # 32*32*32*64
-        x2, x2_ref = self.encoder_lv3(x1.contiguous(), x1_ref.contiguous())
+        x1 = self.encoder_layer1_down(x1.contiguous())  
+        x1_ref = self.encoder_layer1_down(x1_ref.contiguous())  
+        x2, x2_ref = self.encoder_layer2(x1.contiguous(), x1_ref.contiguous())
         x2_out = self.proj_out(x2, normalize)
         x2_ref_out = self.proj_out(x2_ref, normalize)
 
-        x2 = self.encoder_lv3_down(x2.contiguous())
-        x2_ref = self.encoder_lv3_down(x2_ref.contiguous())
-        x3, x3_ref = self.encoder_lv4(x2.contiguous(), x2_ref.contiguous())
+        x2 = self.encoder_layer2_down(x2.contiguous())
+        x2_ref = self.encoder_layer2_down(x2_ref.contiguous())
+        x3, x3_ref = self.encoder_layer3(x2.contiguous(), x2_ref.contiguous())
         x3_out = self.proj_out(x3, normalize)
         x3_ref_out = self.proj_out(x3_ref, normalize)
-
-        x3 = self.encoder_lv4_down(x3.contiguous())
-        x3_ref = self.encoder_lv4_down(x3_ref.contiguous())
-        x4, x4_ref = self.encoder_lv5(x3.contiguous(), x3_ref.contiguous())
+        
+        x3 = self.encoder_layer3_down(x3.contiguous())
+        x3_ref = self.encoder_layer3_down(x3_ref.contiguous())
+        x4, x4_ref = self.encoder_layer4(x3.contiguous(), x3_ref.contiguous())
         x4_out = self.proj_out(x4, normalize)
         x4_ref_out = self.proj_out(x4_ref, normalize)
+        
 
-        return [x0,     x1_out,     x2_out,     x3_out,     x4_out, \
-                x0_ref, x1_ref_out, x2_ref_out, x3_ref_out, x4_ref_out]
+        return [x1_out,     x2_out,     x3_out,     x4_out, \
+                x1_ref_out, x2_ref_out, x3_ref_out, x4_ref_out]
+        
