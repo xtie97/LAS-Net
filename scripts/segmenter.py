@@ -8,11 +8,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
-try:
-    import cc3d
-except:
-    os.system("pip --trusted-host pypi.org --trusted-host files.pythonhosted.org install connected-components-3d")
-    import cc3d
+import cc3d
 import numpy as np
 import psutil
 import shutil
@@ -156,41 +152,47 @@ def con_comp(seg_array):
     conn_comp = cc3d.connected_components(seg_array, connectivity=connectivity)
     return conn_comp
 
-
-def get_TN_FP_FN(gt_array, pred_array, PET_volume=None):
-    # compute number of voxels of false negative connected components (of the ground truth mask) in the prediction mask
-    gt_conn_comp = con_comp(gt_array)
+def false_pos_pix(gt_array, pred_array, pred_array_baseline=None):
+    # compute number of voxels of false positive connected components in prediction mask
     pred_conn_comp = con_comp(pred_array)
     
+    false_pos = 0 
+    false_pos_num = 0
+    for idx in range(1, min(pred_conn_comp.max()+1, 50)):
+        comp_mask = np.isin(pred_conn_comp, idx)
+        if comp_mask.sum() <= 8: # ignore small connected components 
+            continue
+        if (comp_mask*gt_array).sum() == 0:
+            false_pos = false_pos+comp_mask.sum() 
+            false_pos_num = false_pos_num+1
+            
+    return false_pos_num
+
+def false_neg_pix(gt_array, pred_array):
+    # compute number of voxels of false negative connected components (of the ground truth mask) in the prediction mask
+    gt_conn_comp = con_comp(gt_array)
+    
+    false_neg = 0
+    true_pos = 0
     false_neg_num = 0 
     true_pos_num = 0
-    false_pos_num = 0 
-    
-    for idx in range(1, gt_conn_comp.max()+1):
+    for idx in range(1, min(gt_conn_comp.max()+1, 50)):
         comp_mask = np.isin(gt_conn_comp, idx) 
-        if (comp_mask*pred_array).sum() > 0: # overlap with prediction
-            if PET_volume is not None:
-                max_pred_gt = np.max(PET_volume[comp_mask*pred_array > 0])
-                max_gt = np.max(PET_volume[comp_mask > 0]) 
-                if np.abs(max_pred_gt-max_gt) < 0.1: # 0.1 SUV uptake difference 
-                    true_pos_num += 1
-                else:
-                    false_neg_num += 1
-            else:
-                true_pos_num += 1
+        if (comp_mask*pred_array).sum() == 0:
+            false_neg = false_neg+comp_mask.sum()
+            false_neg_num = false_neg_num+1
         else:
-            false_neg_num += 1
-
-    false_pos_num = pred_conn_comp.max() - true_pos_num      
-    return true_pos_num, false_neg_num, false_pos_num
-
-
+            true_pos = true_pos+comp_mask.sum()
+            true_pos_num = true_pos_num+1
+            
+    return true_pos_num, false_neg_num 
+    
 class TPFPFNHelper:
     def __init__(self):
         super().__init__()
         pass
 
-    def __call__(self, y_pred, y, PET_volume=None):
+    def __call__(self, y_pred, y):
         n_pred_ch = y_pred.shape[1]
         if n_pred_ch > 1:
             y_pred = torch.argmax(y_pred, dim=1, keepdim=True)
@@ -207,36 +209,27 @@ class TPFPFNHelper:
         FN_sum = 0
         y_copy = deepcopy(y).detach().cpu().numpy().squeeze()
         y_pred_copy = deepcopy(y_pred).detach().cpu().numpy().squeeze()
-        if PET_volume is not None:
-            PET_volume_copy = deepcopy(PET_volume).detach().cpu().numpy().squeeze()
-        
         if y_copy.ndim == 3: # if batch dim is reduced 
             y_copy = y_copy[np.newaxis, ...]
             y_pred_copy = y_pred_copy[np.newaxis, ...]
-            if PET_volume is not None:
-                PET_volume_copy = PET_volume_copy[np.newaxis, ...]
 
         for ii in range(y_copy.shape[0]):
             y_ = y_copy[ii]
             y_pred_ = y_pred_copy[ii]   
-            if PET_volume is not None:
-                PET_volume_ = PET_volume_copy[ii]
-                TP, FN, FP = get_TN_FP_FN(y_, y_pred_, PET_volume_)
-            else:
-                TP, FN, FP = get_TN_FP_FN(y_, y_pred_) 
-            
+
+            FP = false_pos_pix(y_, y_pred_)
+            TP, FN = false_neg_pix(y_, y_pred_)
+
             TP_sum += TP
             FP_sum += FP
             FN_sum += FN
 
-        return TP_sum, FP_sum, FN_sum  
-
+        return TP_sum, FP_sum, FN_sum # all are volumes
 
 def logits2pred(logits, sigmoid=False, dim=1):
     if isinstance(logits, (list, tuple)):
         logits = logits[0]
     return torch.softmax(logits, dim=dim) if not sigmoid else torch.sigmoid(logits)
-
 
 class DataTransformBuilder:
     def __init__(
