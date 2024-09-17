@@ -3,6 +3,8 @@ name: lymph_segmentation
 task: segmentation
 modality: PET
 extra_modalities: {image2: CT, image3: PET, image4: CT}
+input_channels: 2 # PET + CT
+output_classes: 2 # bg + lesion
 dataroot: data/*
 datalist: data/folds/*.json
 data_file_base_dir: $@dataroot
@@ -22,9 +24,10 @@ roi_size: [112, 112, 112]
 crop_mode: ratio
 crop_ratios: [1, 2, 2, 4] # [1, 2, 2, 4], [1, 4, 2, 4]
 num_samples: 2    
-batch_size:  4   
+batch_size:  4  
 sw_batch_size: 16
-quick: false
+use_checkpoint: true
+
 resample: false
 resample_resolution: [3.0, 3.0, 3.0]
 num_epochs_per_validation: 1
@@ -37,6 +40,8 @@ num_warmup_epochs: 5
 learning_rate: 1.0e-4  
 optimizer: {_target_: torch.optim.AdamW, lr: '@learning_rate', weight_decay: 1.0e-05}
 normalize_mode: range
+
+quick: false
 amp: true
 ckpt_save: true
 cache_rate: null
@@ -44,8 +49,7 @@ determ: true
 validate: {enabled: false, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
     + '/prediction_validation'}
 multigpu: true
-input_channels: 4
-output_classes: 4
+
 image_size: [407, 407, 962]
 class_index: null
 intensity_bounds: [0.32462912266785166, 4.477624973785952]
