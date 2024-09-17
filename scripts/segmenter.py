@@ -968,8 +968,7 @@ class Segmenter:
             val_acc_mean1 = -1
             val_acc_mean2 = -1
 
-            if epoch == 0 or epoch == 10 or epoch == 20 or epoch == 50 or \
-                (epoch >= 100 and epoch % config["num_epochs_per_validation"] == 0): 
+            if epoch % config["num_epochs_per_validation"] == 0: 
                 start_time = time.time()
                 val_loss, avg_TP, avg_FN, avg_FP, val_acc1, val_acc2 = self.val_epoch(
                     model=model,
