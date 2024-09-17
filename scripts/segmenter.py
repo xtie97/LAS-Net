@@ -866,17 +866,7 @@ class Segmenter:
             validation_files, _ = datafold_read(datalist=config["data_list_file_path"], basedir=config["data_file_base_dir"], fold=-1, key=config["validation_key"])
         else:
             train_files, validation_files = datafold_read(datalist=config["data_list_file_path"], basedir=config["data_file_base_dir"], fold=config["fold"])
-
-        testing_files, _ = datafold_read(
-                datalist=self.config["datalist"],
-                basedir=self.config["dataroot"],
-                fold=-1,
-                key="testing",
-            )
- 
-        train_files = train_files + validation_files
-        validation_files = testing_files
-        
+            
         if config["quick"]:  # quick run on a smaller subset of files
             train_files, validation_files = train_files[:8], validation_files[:8]
         if self.rank == 0:
