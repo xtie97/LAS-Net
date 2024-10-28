@@ -18,9 +18,26 @@ We designed LAS-Net with a dual-branch architecture to accommodate baseline and 
 
 
 
-
-
 ## Usage 🚀
+
+To run this project, you can use the pre-configured **Docker** container for easy setup. The Docker image is hosted on Docker Hub.
+
+### Steps:
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/xtie97/LAS-Net.git
+   ```
+2. **Pull the Docker image from Docker Hub**:
+    ```bash
+   docker pull xtie97/xxt_radiomics
+   ```
+3. **Run the Docker container**:
+   ```bash
+   docker run -it --rm -v $(pwd):/workspace xtie97/xxt_radiomics
+   ```
+
+
 
 We already released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0).
 
