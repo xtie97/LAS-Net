@@ -17,7 +17,7 @@ loss: {_target_: $@loss_fun, include_background: false, smooth_nr: 0.01, smooth_
 ckpt_path: $@bundle_root + '/' + 'model' # folder to save the model 
 finetune: {enabled: false, ckpt_name: $@ckpt_path  + '/model.pt'}
 infer: {enabled: false, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
-    + '/prediction_' + @infer#data_list_key + '_fold1', data_list_key: testing}  
+    + '/prediction_' + @infer#data_list_key + '', data_list_key: testing}  
 
 class_names: [lesion] 
 roi_size: [112, 112, 112] 
