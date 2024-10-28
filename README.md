@@ -18,7 +18,7 @@ We designed LAS-Net with a dual-branch architecture to accommodate baseline and 
 
 
 
-## Usage 🚀
+## Installation 🛠
 
 To run this project, you can use the pre-configured **Docker** container for easy setup. The Docker image is hosted on Docker Hub.
 
@@ -36,13 +36,28 @@ To run this project, you can use the pre-configured **Docker** container for eas
    ```bash
    docker run -it --rm -v $(pwd):/workspace xtie97/xxt_radiomics
    ```
+   
+## Preprocessing 
+The baseline and interim PET/CT images should be co-registered using either rigid or deformable registration. We used [ANTsPy](https://github.com/ANTsX/ANTsPy) to perform registration. It is not garenteed that this automatic registration approach can always provide acceptable results. We do recommend going through the cases to find unacceptable registration. If that is the case, consider using software like MIM or Slicer to perform manual registration. 
+
+All the images were resampled to an isotropic voxel size of 3 mm using trilinear interpolation and the input patch size is 112×112×112.
 
 
+## Usage 🚀
+To train or evaluate the model, please open and modify the **configs/hyper_parameters.yaml** file to adjust the training parameters or switch to the validation mode:
+   - Make sure to update the paths for your data root and data list.
 
-We already released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0).
+Starting training by runing the following command:
+```bash
+python main.py
+```
+To run inference, please change the following in the **configs/hyper_parameters.yaml** file:
+```bash
+infer: {enabled: true, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
+    + '/prediction_' + @infer#data_list_key + '', data_list_key: testing}  
+```
 
-
-
+We also released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0). Since we primarily focused on high-risk pediatric Hodgkin lymphoma, current models may not work well in other lymphoma disease because the treatment response can vary a lot for different diseases. If you have enough data, you can definitelly train from scratch or initialize the model with our weights for fine-tuning. We also provide the fine-tuning option in the **configs/hyper_parameters.yaml** file. 
 
 ## Citation 📚
 
