@@ -29,13 +29,13 @@ To run this project, you can use a pre-configured **Docker** container for easy 
    ```
 2. **Pull the Docker image from Docker Hub**:
     ```bash
-   docker pull xtie97/xxt_radiomics
+   docker pull xtie97/monai_wb
    ```
 3. **Run the Docker container**:
    ```bash
-   docker run -it --rm -v $(pwd):/workspace xtie97/xxt_radiomics
+   docker run -it --rm -v $(pwd):/workspace xtie97/monai_wb
    ```
-   
+
 ## Preprocessing 🧩
 The baseline and interim PET/CT images should be spatially aligned using either rigid or deformable registration. We used [ANTsPy](https://github.com/ANTsX/ANTsPy) for automatic registration. It is not guaranteed that this automatic registration approach can always provide acceptable results. We do recommend manual verification. For cases requiring manual registration, consider tools like MIM or 3D Slicer. 
 
