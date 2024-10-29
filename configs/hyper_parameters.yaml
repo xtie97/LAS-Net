@@ -39,7 +39,7 @@ num_epochs: 300
 num_warmup_epochs: 5    
 learning_rate: 1.0e-4  
 optimizer: {_target_: torch.optim.AdamW, lr: '@learning_rate', weight_decay: 1.0e-05}
-normalize_mode: range
+normalize_mode: PET
 
 quick: false
 amp: true
