@@ -25,7 +25,7 @@ crop_mode: ratio
 crop_ratios: [1, 2, 2, 4]  
 num_samples: 2    
 batch_size:  4  
-sw_batch_size: 16
+sw_batch_size: 8
 use_checkpoint: true
 
 resample: false
