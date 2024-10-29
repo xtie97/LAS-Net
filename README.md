@@ -60,7 +60,7 @@ We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6i
 ## Future Directions :dart:
 - Although incorporating prior information from baseline PET/CT scans shows clear advancements in residual lesion detection, there is still room for further improvements. Strategies such as model pre-training, semi-supervised techniques, more parameter-efficient or memory-efficient cross-attention, advanced feature fusion techniques, and access to larger datasets may help improve the performance and address current challenges in automatic residual lesion detection.
   
-- The current model is primarily designed for interim PET lesion detection, but it can also be used for baseline PET segmentation. Extending the model to operate across more than two imaging time points could be an intriguing yet challenging topic, potentially requiring adaptations or redesign of model architectures and more careful data pre-processing. 
+- The LAS-Net model is primarily designed for interim PET lesion detection, but it can also be used for baseline PET segmentation. Extending the model to operate across more than two imaging time points (e.g., end-of-treatment PET/CT) could be an intriguing yet challenging topic. Achieving this will likely require adaptations in model architecture and careful data pre-processing. 
 
 ## Citation 📚
 
