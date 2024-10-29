@@ -50,8 +50,5 @@ validate: {enabled: false, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@
     + '/prediction_validation'}
 multigpu: true
 
-image_size: [407, 407, 962]
 class_index: null
 intensity_bounds: [0.32462912266785166, 4.477624973785952]
-spacing_lower: [2.0, 2.0, 2.0]
-spacing_upper: [2.0, 2.0, 2.0]
