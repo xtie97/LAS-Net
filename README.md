@@ -37,7 +37,7 @@ To run this project, you can use a pre-configured **Docker** container for easy 
    ```
 
 ## Preprocessing 🧩
-The baseline and interim PET/CT images should be spatially aligned using either rigid or deformable registration. We used [ANTsPy](https://github.com/ANTsX/ANTsPy) for automatic registration. It is not guaranteed that this automatic registration approach can always provide acceptable results. We do recommend manual verification. For cases requiring manual registration, consider tools like MIM or 3D Slicer. 
+The baseline and interim PET/CT images should be spatially aligned using either rigid or deformable registration. We used [ANTsPy](https://github.com/ANTsX/ANTsPy) for automatic registration. It is not guaranteed that this automatic registration approach can always provide acceptable results. We do recommend manual verification. For cases requiring manual registration, consider tools like MIM. 
 
 All images were resampled to an isotropic voxel size of 3 mm using trilinear interpolation, with an input patch size of 112×112×112.
 
