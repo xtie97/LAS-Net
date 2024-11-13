@@ -423,7 +423,7 @@ class DataTransformBuilder:
                 keys=[self.image_key, self.label_key],
                 prob=0.2,
                 sigma_range=(3,7),
-                magnitude_range=(10,30),
+                magnitude_range=(5,20),
                 rotate_range=[0.25, 0.25, 0.25],
                 scale_range=[0.2, 0.2, 0.2],
                 mode=["bilinear", "nearest"],
