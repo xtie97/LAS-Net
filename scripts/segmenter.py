@@ -45,6 +45,7 @@ from monai.transforms import (
     LoadImaged,
     NormalizeIntensityd,
     RandAffined,
+    Rand3DElasticd,
     RandCropByLabelClassesd,
     RandFlipd,
     RandGaussianNoised,
@@ -409,6 +410,20 @@ class DataTransformBuilder:
             RandAffined(
                 keys=[self.image_key, self.label_key],
                 prob=0.2,
+                rotate_range=[0.25, 0.25, 0.25],
+                scale_range=[0.2, 0.2, 0.2],
+                mode=["bilinear", "nearest"],
+                # spatial_size=self.roi_size,
+                cache_grid=True,
+                padding_mode="border",
+            )
+        )
+        ts.append(
+            Rand3DElasticd(
+                keys=[self.image_key, self.label_key],
+                prob=0.2,
+                sigma_range=(3,7),
+                magnitude_range=(10,30),
                 rotate_range=[0.25, 0.25, 0.25],
                 scale_range=[0.2, 0.2, 0.2],
                 mode=["bilinear", "nearest"],
