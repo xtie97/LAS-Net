@@ -1027,8 +1027,7 @@ class Segmenter:
                         best_metric, best_metric_epoch = val_acc_mean1, epoch
                         save_time = 0
                         if do_torch_save:
-                            save_time = self.checkpoint_save(ckpt=best_ckpt_path, model=self.model, epoch=best_metric_epoch, \
-                                                            best_metric_interim=val_acc_mean1, best_metric_baseline=val_acc_mean2)
+                            save_time = self.checkpoint_save(ckpt=best_ckpt_path, model=self.model, epoch=best_metric_epoch)
                         if progress_path is not None:
                             self.save_progress_yaml(
                                 progress_path=progress_path,
