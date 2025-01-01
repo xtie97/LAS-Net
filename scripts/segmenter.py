@@ -739,8 +739,7 @@ class Segmenter:
             model.load_state_dict(checkpoint["state_dict"], strict=False)
             epoch = checkpoint.get("epoch", 0)
 
-            best_metric = checkpoint.get("best_metric", 0)
-            print(f"=> loaded checkpoint {ckpt} (epoch {epoch}) (best_metric {best_metric})")
+            print(f"=> loaded checkpoint {ckpt} (epoch {epoch})")
 
 
     def get_shared_memory_list(self, length=0):
