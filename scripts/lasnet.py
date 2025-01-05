@@ -40,6 +40,7 @@ class LASNet(nn.Module):
         downsample="merging",
         deep_supr_num: int = 1,
         use_checkpoint: bool = False,
+        use_v2: bool = False,
     ) -> None:
         
         super().__init__()
@@ -77,6 +78,7 @@ class LASNet(nn.Module):
             spatial_dims=spatial_dims,
             downsample=downsample,
             use_checkpoint=use_checkpoint,
+            use_v2=use_v2,
         )
 
         self.encoder0 = UnetrBasicBlock(
