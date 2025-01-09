@@ -4,7 +4,7 @@ import monai
 from lasnet import LASNet
 #from modules import SwinTransformer
 
-def get_network(img_size, in_channels, n_class, use_checkpoint=True):
+def get_network(img_size, in_channels, n_class, use_checkpoint=True, use_v2=True):
     # get the multiplication of img_size
     model = LASNet(
             img_size=img_size,
@@ -15,6 +15,7 @@ def get_network(img_size, in_channels, n_class, use_checkpoint=True):
             spatial_dims=3,
             deep_supr_num=3,
             use_checkpoint=use_checkpoint,
+            use_v2=use_v2,
             )
     return model
 
@@ -41,17 +42,3 @@ if __name__ == "__main__":
 
     # save the model as .pt
     torch.save(model.state_dict(), "model.pt")
-    '''
-    SwinTransformer:
-    torch.Size([1, 32, 56, 56, 56])
-    torch.Size([1, 64, 28, 28, 28])
-    torch.Size([1, 128, 14, 14, 14])
-    torch.Size([1, 256, 7, 7, 7])
-    torch.Size([1, 512, 4, 4, 4])
-    torch.Size([1, 32, 56, 56, 56])
-    torch.Size([1, 64, 28, 28, 28])
-    torch.Size([1, 128, 14, 14, 14])
-    torch.Size([1, 256, 7, 7, 7])
-    torch.Size([1, 512, 4, 4, 4])
-    '''
-
