@@ -84,7 +84,7 @@ model = LASNet(
       use_v2=True,
       )
 ```
-The model weights can be found in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0)
+The model weights can be found in [**Dropbox**](https://www.dropbox.com/scl/fo/5k79nn3wibpp8vytchaq9/AIeel2joOwXjCCEWPkSHIRQ?rlkey=0pjjnd8eeyo7iwawxe9vsjgeb&st=v7s5n9mj&dl=0)
 
 Since this work is focused on high-risk pediatric Hodgkin lymphoma, and given that treatment responses can vary significantly across lymphoma subtypes, the current models may not work well in other lymphoma diseases. We recommend either training a model from scractch or using our weights for initialization to better align with your specific task and dataset.
 
