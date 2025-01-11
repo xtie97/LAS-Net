@@ -55,7 +55,38 @@ infer: {enabled: true, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bund
     + '/prediction_' + @infer#data_list_key + '', data_list_key: testing}  
 ```
 
-We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0). Since this work is focused on high-risk pediatric Hodgkin lymphoma, and given that treatment responses can vary significantly across lymphoma subtypes, the current models may not work well in other lymphoma diseases. We recommend either training a model from scractch or using our weights for initialization to better align with your specific task and dataset.
+We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0). The model configuration can be specified in **scripts/model.py**
+```bash
+model = LASNet(
+      img_size=img_size,
+      in_channels=in_channels,
+      out_channels=n_class,
+      feature_size=48,
+      num_heads=[3, 6, 12, 24],
+      spatial_dims=3,
+      deep_supr_num=3,
+      use_checkpoint=True,
+      use_v2=False,
+      )
+```
+
+We also tried to scale our model by increasing the embedding dimension and adding the residual block before each Swin Transformer block (see [SwinUNETR-V2](https://link.springer.com/chapter/10.1007/978-3-031-43901-8_40)). The corresponding model configuration (in **scripts/model.py**) is 
+```bash
+model = LASNet(
+      img_size=img_size,
+      in_channels=in_channels,
+      out_channels=n_class,
+      feature_size=64,
+      num_heads=[4, 8, 16, 32],
+      spatial_dims=3,
+      deep_supr_num=3,
+      use_checkpoint=True,
+      use_v2=True,
+      )
+```
+The model weights can be found in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0)
+
+Since this work is focused on high-risk pediatric Hodgkin lymphoma, and given that treatment responses can vary significantly across lymphoma subtypes, the current models may not work well in other lymphoma diseases. We recommend either training a model from scractch or using our weights for initialization to better align with your specific task and dataset.
 
 ## Future Directions :dart:
 - **Further Improve Residual Lesion Detection**: Although incorporating prior information from baseline PET/CT scans shows clear advancements in residual lesion detection, there is still room for further improvements. Strategies such as *model pre-training, semi-supervised techniques, more parameter-efficient or memory-efficient cross-attention, advanced feature fusion techniques, and access to larger datasets* may help improve the performance and address current challenges in automatic residual lesion detection.
