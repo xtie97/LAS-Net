@@ -70,7 +70,7 @@ model = LASNet(
       )
 ```
 
-We also tried to scale our model by increasing the embedding dimension and adding the residual block before each Swin Transformer block (see [SwinUNETR-V2](https://link.springer.com/chapter/10.1007/978-3-031-43901-8_40)). The corresponding model configuration (in **scripts/model.py**) is 
+We also tried to scale our model by increasing the embedding dimension and adding the residual block before each Swin Transformer block (see [SwinUNETR-V2](https://link.springer.com/chapter/10.1007/978-3-031-43901-8_40)). The corresponding model configuration (in **scripts/model.py**) is as follows:
 ```bash
 model = LASNet(
       img_size=img_size,
