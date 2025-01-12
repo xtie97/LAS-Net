@@ -1,6 +1,6 @@
 # Longitudinally-Aware Segmentation Network (LAS-Net) for Pediatric Hodgkin Lymphoma :bookmark_tabs:
 
-This repository contains the code for the paper [**Automatic Quantification of Serial PET/CT Images for Pediatric Hodgkin Lymphoma Patients Using a Longitudinally-Aware Segmentation Network**](https://arxiv.org/abs/2404.08611) (under review).
+This repository contains the code for the paper [**Automatic Quantification of Serial PET/CT Images for Pediatric Hodgkin Lymphoma Using a Longitudinally-Aware Segmentation Network**](https://arxiv.org/abs/2404.08611) (under review).
 
 ## Overview :mag_right:
 **Summary**: 
@@ -43,13 +43,13 @@ All images were resampled to an isotropic voxel size of 3 mm using trilinear int
 
 
 ## Usage 🚀
-To train or evaluate the model, please open and modify the **configs/hyper_parameters.yaml** file to adjust parameters and update the paths for your data root and data list:
+To train or evaluate the model, please open and modify the **`configs/hyper_parameters.yaml`** file to adjust parameters and update the paths for your data root and data list:
 
 Starting training by runing the following command:
 ```bash
 python main.py
 ```
-To run inference, please change the following in the **configs/hyper_parameters.yaml** file:
+To run inference, please change the following in the **`configs/hyper_parameters.yaml`** file:
 ```bash
 infer: {enabled: true, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bundle_root
     + '/prediction_' + @infer#data_list_key + '', data_list_key: testing}  
