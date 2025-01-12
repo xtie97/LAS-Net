@@ -2,16 +2,15 @@ import torch
 import numpy as np
 import monai
 from lasnet import LASNet
-#from modules import SwinTransformer
-
-def get_network(img_size, in_channels, n_class, use_checkpoint=True, use_v2=False):
+ 
+def get_network(img_size, in_channels, n_class, use_checkpoint=True, use_v2=True):
     # get the multiplication of img_size
     model = LASNet(
             img_size=img_size,
             in_channels=in_channels,
             out_channels=n_class,
-            feature_size=48, # 64
-            num_heads=[3, 6, 12, 24], # [4, 8, 16, 32]
+            feature_size=64, # 48, 64
+            num_heads=[4, 8, 16, 32], # [3, 6, 12, 24], [4, 8, 16, 32]
             spatial_dims=3,
             deep_supr_num=3,
             use_checkpoint=use_checkpoint,
