@@ -55,7 +55,7 @@ infer: {enabled: true, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bund
     + '/prediction_' + @infer#data_list_key + '', data_list_key: testing}  
 ```
 
-We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=79nzdg6ouzx8tddot693z6c1e&st=4jlqmtvi&dl=0). The model configuration can be specified in **`scripts/model.py`**
+We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=79nzdg6ouzx8tddot693z6c1e&st=4jlqmtvi&dl=0). The model configuration can be specified in **`scripts/model.py`**:
 ```python
 model = LASNet(
       img_size=img_size,
