@@ -55,7 +55,7 @@ infer: {enabled: true, ckpt_name: $@ckpt_path + '/model.pt', output_path: $@bund
     + '/prediction_' + @infer#data_list_key + '', data_list_key: testing}  
 ```
 
-We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=sbuaip5qy0ep6mukcne9nwlxe&dl=0). The model configuration can be specified in **`scripts/model.py`**
+We released our model weights in [**Dropbox**](https://www.dropbox.com/scl/fo/6ihu7tjk2yqe75bylyy0t/h?rlkey=79nzdg6ouzx8tddot693z6c1e&st=4jlqmtvi&dl=0). The model configuration can be specified in **`scripts/model.py`**
 ```python
 model = LASNet(
       img_size=img_size,
@@ -70,8 +70,8 @@ model = LASNet(
       )
 ```
 
-We also tried to scale our model by increasing the embedding dimension and adding the residual block before each Swin Transformer block (see [SwinUNETR-V2](https://link.springer.com/chapter/10.1007/978-3-031-43901-8_40)). The corresponding model configuration (in **scripts/model.py**) is as follows:
-```bash
+We also tried to scale our model by increasing the embedding dimension and adding a residual block before each Swin Transformer block (for details, refer to [SwinUNETR-V2](https://link.springer.com/chapter/10.1007/978-3-031-43901-8_40)). The corresponding model configuration (in **`scripts/model.py`**) is as follows:
+```python
 model = LASNet(
       img_size=img_size,
       in_channels=in_channels,
@@ -84,7 +84,7 @@ model = LASNet(
       use_v2=True,
       )
 ```
-The model weights can be found in [**Dropbox**](https://www.dropbox.com/scl/fo/5k79nn3wibpp8vytchaq9/AIeel2joOwXjCCEWPkSHIRQ?rlkey=0pjjnd8eeyo7iwawxe9vsjgeb&st=v7s5n9mj&dl=0).
+The model weights can be found in [**Dropbox**](https://www.dropbox.com/scl/fo/5k79nn3wibpp8vytchaq9/AIeel2joOwXjCCEWPkSHIRQ?rlkey=0pjjnd8eeyo7iwawxe9vsjgeb&st=7ouarfoe&dl=0).
 
 Since this work is focused on high-risk pediatric Hodgkin lymphoma, and given that treatment responses can vary significantly across lymphoma subtypes, the current models may not work well in other lymphoma diseases. We recommend either training a model from scractch or using our weights for initialization to better align with your specific task and dataset.
 
