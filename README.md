@@ -95,5 +95,7 @@ Since this work is focused on high-risk pediatric Hodgkin lymphoma, and given th
 
 ## Citation 📚
 
+Tie X, Shin M, Lee C, Perlman SB, Huemann Z, Weisman AJ, Castellino SM, Kelly KM, McCarten KM, Alazraki AL, Hu J, Cho SY, Bradshaw TJ. Automatic Quantification of Serial PET/CT Images for Pediatric Hodgkin Lymphoma Using a Longitudinally Aware Segmentation Network. Radiol Artif Intell. 2025 Feb 19:e240229. doi: 10.1148/ryai.240229. Epub ahead of print. PMID: 39969278.
+
 
 
