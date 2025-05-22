@@ -1,6 +1,6 @@
 # Longitudinally-Aware Segmentation Network (LAS-Net) for Pediatric Hodgkin Lymphoma :bookmark_tabs:
 
-This repository contains the code for the paper [**Automatic Quantification of Serial PET/CT Images for Pediatric Hodgkin Lymphoma Using a Longitudinally-Aware Segmentation Network**]([https://arxiv.org/abs/2404.08611](https://pubs.rsna.org/doi/10.1148/ryai.240229) (published in Radiology: Artificial Intelligence)
+This repository contains the code for the paper [**Automatic Quantification of Serial PET/CT Images for Pediatric Hodgkin Lymphoma Using a Longitudinally-Aware Segmentation Network**]([https://pubs.rsna.org/doi/10.1148/ryai.240229]) (published in Radiology: Artificial Intelligence)
 
 ## Overview :mag_right:
 **Summary**: 
